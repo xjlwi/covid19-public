@@ -1,0 +1,156 @@
+---
+title: "eda_covid19_malaysia"
+author: "Crystal Lwi"
+date: "20/07/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Covid19 Markdown
+
+This is the first version EDA on the `epidemic data folder`.
+
+### Strategy: 
+1.  Number of cases by date (line plot) 
+2.  Number of cases by state (bar graph)
+3.  Clusters by state (Scatter plot) 
+4. 
+
+```{r library, packages, echo=FALSE}
+pacman::p_load(dplyr, tidyverse, janitor, lubridate, ggplot2, data.table, here, 
+               purrr, zoo, dygraphs,
+               xts)
+epidemic_dir <- paste0(here(), "/covid19-public/epidemic/")
+cases_msia <- fread(paste0(epidemic_dir, "cases_malaysia.csv")) %>% 
+  mutate(date = zoo::as.Date(date)) %>% 
+  arrange(date)
+cases_msia
+
+state <- fread(paste0(epidemic_dir, "/cases_state.csv")) %>% 
+  mutate(date = zoo::as.Date(date)) %>% 
+  arrange(date)
+state
+
+clusters <- fread(paste0(epidemic_dir, "clusters.csv")) %>% 
+  mutate_at(vars(contains("date")), zoo::as.Date)
+
+deaths <- fread(paste0(epidemic_dir, "deaths_malaysia.csv")) %>% 
+  mutate(date = as.Date(date)) %>% 
+  arrange(date)
+deaths_state <- fread(paste0(epidemic_dir, "deaths_state.csv")) %>% 
+  mutate(date = zoo::as.Date(date)) %>% 
+  arrange(date)
+
+df_daily <- list(cases_msia, deaths) %>% 
+  reduce(merge, "date")%>% 
+  mutate(year = year(date), month = month(date), day = day(date))
+df_daily
+
+all_states <- list(state, deaths_state) %>% 
+  reduce(merge, c("state", "date")) %>% 
+  arrange(state, date) %>% 
+  mutate(year = year(date), month = month(date), day = day(date))
+```
+
+## Data Visualisation
+
+Trending of the daily number of cases reported
+```{r Daily cases, echo=FALSE}
+# Number of cases per day 
+cumsum_cases <- df_daily %>% mutate(cumulative_cases = cumsum(cases_new))
+dygraph(cumsum_cases %>% select(date, cases_new, cumulative_cases),
+        main = "Daily new cases in Malaysia")
+
+cumsum_cases_state <- all_states %>% select(date, state, cases_new) %>% 
+  pivot_wider(names_from = state, values_from = cases_new) %>% 
+  clean_names() %>% 
+  purrr::set_names(., gsub("w_p_", "", names(.))) %>% 
+  arrange(date) %>% as.data.frame() %>% 
+  as.xts(order.by = .$date)
+dygraph(cumsum_cases_state, main = "Daily new cases by State")%>%
+  dySeries("kuala_lumpur", drawPoints = TRUE, color = '#00a19d')
+```
+
+The number of daily deaths.
+```{r Daily deaths, echo = FALSE}
+# Number of deaths per day
+cumsum_death <- df_daily %>% mutate(cumulative_deaths = cumsum(deaths_new))
+
+dygraph(cumsum_death %>% select(date, deaths_new, cumulative_deaths), main = "Daily new deaths in Malaysia")
+```
+
+We will visualise the total number of cases as of 2021 July 23 by each states.
+Here, we have 2 charts, one focused on West Malaysia (excl. Sabah, Sarawak, Fed Territory Labuan).
+```{r State and Cases Relationship, echo=FALSE}
+excl_states <- c("sabah", "sarawak","labuan")
+all_states %>% 
+  mutate(state = gsub("w.p._", "", gsub(" ", "_", tolower(state)))) %>% 
+  dplyr::filter(!grepl(paste(excl_states, collapse="|") ,state))%>% 
+  group_by (state) %>% 
+  summarise_at(vars(cases_new), sum, na.rm = T)%>% 
+  ggplot(aes(x= reorder(state, desc(cases_new)), y = cases_new, fill = state))+ geom_col()+
+  scale_fill_brewer(palette="Set3")+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 60, hjust = 1))+ 
+  xlab("States")+
+  ggtitle("Number of cases by States in West Malaysia")
+```
+
+This is the number of cases for East Malaysia (Sabah, Sarawak and the Federal Territories Labuan).
+```{r East Malaysia, echo = FALSE}
+all_states %>% 
+  mutate(state = gsub("w.p._", "", gsub(" ", "_", tolower(state)))) %>% 
+  dplyr::filter(grepl(paste(excl_states, collapse="|") ,state))%>% 
+  group_by (state) %>% 
+  summarise_at(vars(cases_new), sum, na.rm = T)%>% 
+  ggplot(aes(x= reorder(state, desc(cases_new)), y = cases_new, fill = state))+ geom_col()+
+  scale_fill_brewer(palette="RdYlGn")+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 60, hjust = 1))+
+  xlab ("States")+
+  ggtitle("Number of cases in East Malaysia")
+```
+
+Next we will look at the total number of deaths by states :(
+```{r}
+excl_states <- c("sabah", "sarawak","labuan")
+all_states %>% 
+  mutate(state = gsub("w.p._", "", gsub(" ", "_", tolower(state)))) %>% 
+  dplyr::filter(!grepl(paste(excl_states, collapse="|") ,state))%>% 
+  group_by (state) %>% 
+  summarise_at(vars(deaths_new), sum, na.rm = T)%>% 
+  ggplot(aes(x= reorder(state, desc(deaths_new)), y = deaths_new, fill = state))+ geom_col()+
+  scale_fill_brewer(palette="Set3")+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 60, hjust = 1))+ 
+  xlab("States")+
+  ggtitle("Total number of deaths by States in West Malaysia")
+
+all_states %>% 
+  mutate(state = gsub("w.p._", "", gsub(" ", "_", tolower(state)))) %>% 
+  dplyr::filter(grepl(paste(excl_states, collapse="|") ,state))%>% 
+  group_by (state) %>% 
+  summarise_at(vars(cases_new), sum, na.rm = T)%>% 
+  ggplot(aes(x= reorder(state, desc(cases_new)), y = cases_new, fill = state))+ geom_col()+
+  scale_fill_brewer(palette="RdYlGn")+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 60, hjust = 1))+
+  xlab ("States")+
+  ggtitle("Total number of deaths in East Malaysia")
+```
+
+```{r Data Analysis}
+
+
+```
+
+
+
+```{r Map Visusal, echo=FALSE}
+
+```
+
+
