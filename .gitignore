@@ -1,2 +1,3 @@
 *.Rproj
 *.pyc
+*.ipynb_checkpoints
